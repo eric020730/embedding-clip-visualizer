@@ -1,0 +1,15 @@
+{
+  "name": "embedding-clip-visualizer",
+  "version": "1.0.0",
+  "description": "Interactive 3D visualization of Embedding and CLIP concepts",
+  "author": "Eric",
+  "license": "MIT",
+  "keywords": [
+    "embedding",
+    "clip",
+    "visualization",
+    "ai",
+    "machine-learning",
+    "3d"
+  ]
+}

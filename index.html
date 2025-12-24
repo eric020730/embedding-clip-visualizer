@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embedding & CLIP 視覺化 - 3D 互動教學</title>
+    <meta name="description" content="用 3D 空間理解 AI 的 Embedding 和 CLIP 圖像檢索技術">
+    
+    <!-- React 和 Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const EmbeddingVisualizer = () => {
+          const [activeTab, setActiveTab] = useState('embedding');
+          const [rotation, setRotation] = useState({ x: 20, y: 45 });
+          const [zoom, setZoom] = useState(1);
+          const [isDragging, setIsDragging] = useState(false);
+          const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+          const canvasRef = useRef(null);
+
+          // Embedding 示例數據
+          const embeddingData = [
+            { id: 1, x: 100, y: 100, z: 100, label: '貓', color: '#3B82F6' },
+            { id: 2, x: 120, y: 110, z: 95, label: '🐱', color: '#60A5FA' },
+            { id: 3, x: 90, y: 150, z: 120, label: '狗', color: '#3B82F6' },
+            { id: 4, x: 110, y: 160, z: 115, label: '🐕', color: '#60A5FA' },
+            { id: 5, x: -80, y: -70, z: 80, label: '蘋果', color: '#EF4444' },
+            { id: 6, x: -90, y: -60, z: 85, label: '🍎', color: '#F87171' },
+            { id: 7, x: -70, y: -90, z: 70, label: '香蕉', color: '#EF4444' },
+            { id: 8, x: -75, y: -80, z: 75, label: '🍌', color: '#F87171' },
+            { id: 9, x: -100, y: 120, z: -90, label: '汽車', color: '#10B981' },
+            { id: 10, x: -110, y: 130, z: -85, label: '🚗', color: '#34D399' },
+            { id: 11, x: -90, y: 140, z: -100, label: '飛機', color: '#10B981' },
+            { id: 12, x: -95, y: 150, z: -95, label: '✈️', color: '#34D399' },
+          ];
+
+          // CLIP 搜尋數據
+          const clipData = [
+            { x: 0, y: 0, z: 0, label: '查詢: 可愛的小貓', type: 'query', color: '#FBBF24' },
+            { x: 30, y: 25, z: 20, label: '🐱', similarity: 0.95, color: '#22C55E' },
+            { x: 80, y: -40, z: 30, label: '🐕', similarity: 0.72, color: '#EAB308' },
+            { x: -60, y: 50, z: -40, label: '🦊', similarity: 0.68, color: '#EAB308' },
+            { x: -90, y: -80, z: 60, label: '🍎', similarity: 0.15, color: '#EF4444' },
+            { x: 100, y: 90, z: -70, label: '🚗', similarity: 0.08, color: '#EF4444' },
+          ];
+
+          const project3D = (x, y, z, rotX, rotY, canvasWidth = 600, canvasHeight = 500) => {
+            const radX = (rotX * Math.PI) / 180;
+            const radY = (rotY * Math.PI) / 180;
+            
+            let tempX = x * Math.cos(radY) + z * Math.sin(radY);
+            let tempZ = -x * Math.sin(radY) + z * Math.cos(radY);
+            let finalY = y * Math.cos(radX) - tempZ * Math.sin(radX);
+            let finalZ = y * Math.sin(radX) + tempZ * Math.cos(radX);
+            
+            const perspective = 500 / (500 + finalZ);
+            
+            return {
+              x: tempX * perspective * 3 * zoom + canvasWidth / 2,
+              y: finalY * perspective * 3 * zoom + canvasHeight / 2,
+              scale: perspective * zoom,
+              z: finalZ
+            };
+          };
+
+          useEffect(() => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            
+            // 設定高 DPI 顯示
+            const dpr = window.devicePixelRatio || 2;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            
+            // 啟用高品質渲染
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            
+            const displayWidth = rect.width;
+            const displayHeight = rect.height;
+            
+            ctx.clearRect(0, 0, displayWidth, displayHeight);
+            
+            // 背景網格
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 0.5;
+            for (let i = -200; i <= 200; i += 50) {
+              const p1 = project3D(i, -150, -200, rotation.x, rotation.y, displayWidth, displayHeight);
+              const p2 = project3D(i, -150, 200, rotation.x, rotation.y, displayWidth, displayHeight);
+              ctx.beginPath();
+              ctx.moveTo(p1.x, p1.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.stroke();
+            }
+            
+            // 座標軸
+            const origin = project3D(0, 0, 0, rotation.x, rotation.y, displayWidth, displayHeight);
+            const axes = [
+              { end: project3D(150, 0, 0, rotation.x, rotation.y, displayWidth, displayHeight), color: '#EF4444', label: 'X' },
+              { end: project3D(0, 150, 0, rotation.x, rotation.y, displayWidth, displayHeight), color: '#22C55E', label: 'Y' },
+              { end: project3D(0, 0, 150, rotation.x, rotation.y, displayWidth, displayHeight), color: '#3B82F6', label: 'Z' },
+            ];
+            
+            axes.forEach(axis => {
+              ctx.strokeStyle = axis.color;
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.moveTo(origin.x, origin.y);
+              ctx.lineTo(axis.end.x, axis.end.y);
+              ctx.stroke();
+              ctx.fillStyle = axis.color;
+              ctx.font = 'bold 16px sans-serif';
+              ctx.fillText(axis.label, axis.end.x + 10, axis.end.y);
+            });
+            
+            // 繪製點
+            const data = activeTab === 'embedding' ? embeddingData : clipData;
+            const sorted = [...data].sort((a, b) => {
+              const aZ = project3D(a.x, a.y, a.z, rotation.x, rotation.y, displayWidth, displayHeight).z;
+              const bZ = project3D(b.x, b.y, b.z, rotation.x, rotation.y, displayWidth, displayHeight).z;
+              return bZ - aZ;
+            });
+            
+            sorted.forEach(point => {
+              const proj = project3D(point.x, point.y, point.z, rotation.x, rotation.y, displayWidth, displayHeight);
+              const size = (point.type === 'query' ? 20 : 12) * proj.scale;
+              
+              // CLIP 連線
+              if (activeTab === 'clip' && point.type !== 'query') {
+                const queryProj = project3D(0, 0, 0, rotation.x, rotation.y, displayWidth, displayHeight);
+                ctx.strokeStyle = point.color;
+                ctx.lineWidth = 2.5;
+                ctx.globalAlpha = 0.3;
+                ctx.beginPath();
+                ctx.moveTo(queryProj.x, queryProj.y);
+                ctx.lineTo(proj.x, proj.y);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+              }
+              
+              // 繪製點
+              ctx.fillStyle = point.color;
+              ctx.beginPath();
+              ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+              ctx.fill();
+              
+              if (point.type === 'query') {
+                ctx.strokeStyle = '#FFF';
+                ctx.lineWidth = 3.5;
+                ctx.stroke();
+              }
+              
+              // 標籤 - 高品質文字渲染
+              ctx.fillStyle = '#FFF';
+              ctx.font = `bold ${16 * proj.scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              
+              // 文字陰影提高可讀性
+              ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+              ctx.shadowBlur = 4;
+              ctx.shadowOffsetX = 0;
+              ctx.shadowOffsetY = 0;
+              
+              ctx.fillText(point.label, proj.x, proj.y - size - 8);
+              
+              if (point.similarity !== undefined) {
+                ctx.font = `600 ${13 * proj.scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif`;
+                ctx.fillText(`${(point.similarity * 100).toFixed(0)}%`, proj.x, proj.y + size + 18);
+              }
+              
+              // 重置陰影
+              ctx.shadowColor = 'transparent';
+              ctx.shadowBlur = 0;
+            });
+          }, [rotation, activeTab, zoom]);
+
+          const handleMouseDown = (e) => {
+            setIsDragging(true);
+            setDragStart({ x: e.clientX, y: e.clientY });
+          };
+
+          const handleMouseMove = (e) => {
+            if (!isDragging) return;
+            const deltaX = e.clientX - dragStart.x;
+            const deltaY = e.clientY - dragStart.y;
+            setRotation(prev => ({
+              x: Math.max(-90, Math.min(90, prev.x + deltaY * 0.5)),
+              y: prev.y + deltaX * 0.5
+            }));
+            setDragStart({ x: e.clientX, y: e.clientY });
+          };
+
+          const handleMouseUp = () => setIsDragging(false);
+
+          const zoomIn = () => setZoom(prev => Math.min(3, prev * 1.2));
+          const zoomOut = () => setZoom(prev => Math.max(0.3, prev / 1.2));
+          
+          const resetView = () => {
+            setRotation({ x: 20, y: 45 });
+            setZoom(1);
+          };
+
+          useEffect(() => {
+            if (isDragging) {
+              window.addEventListener('mousemove', handleMouseMove);
+              window.addEventListener('mouseup', handleMouseUp);
+              return () => {
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', handleMouseUp);
+              };
+            }
+          }, [isDragging, dragStart]);
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 p-8">
+              <div className="max-w-6xl mx-auto">
+                <h1 className="text-4xl font-bold text-white mb-2 text-center">
+                  Embedding & CLIP 視覺化
+                </h1>
+                <p className="text-blue-200 text-center mb-8">
+                  用 3D 空間理解語意向量和圖像檢索
+                </p>
+
+                <div className="flex gap-4 mb-6">
+                  <button
+                    onClick={() => setActiveTab('embedding')}
+                    className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
+                      activeTab === 'embedding'
+                        ? 'bg-blue-600 text-white shadow-lg'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    ⚡ Embedding 空間
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('clip')}
+                    className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
+                      activeTab === 'clip'
+                        ? 'bg-purple-600 text-white shadow-lg'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🔍 CLIP 圖像搜尋
+                  </button>
+                </div>
+
+                <div className="bg-gray-800 rounded-lg shadow-2xl p-6 mb-6">
+                  <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+                    <h2 className="text-xl font-bold text-white">
+                      {activeTab === 'embedding' ? '語意向量空間' : 'CLIP 相似度空間'}
+                    </h2>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="text-sm text-gray-400">
+                        🖱️ 拖曳旋轉
+                      </div>
+                      <div className="flex items-center gap-2 bg-gray-700 px-3 py-2 rounded-lg">
+                        <button
+                          onClick={zoomOut}
+                          className="w-8 h-8 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold text-lg transition-colors"
+                          title="縮小"
+                        >
+                          −
+                        </button>
+                        <span className="text-white text-sm font-semibold min-w-[60px] text-center">
+                          {zoom.toFixed(1)}x
+                        </span>
+                        <button
+                          onClick={zoomIn}
+                          className="w-8 h-8 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold text-lg transition-colors"
+                          title="放大"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <button
+                        onClick={resetView}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                      >
+                        🔄 重置視角
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <canvas
+                    ref={canvasRef}
+                    style={{ width: '100%', height: '500px' }}
+                    onMouseDown={handleMouseDown}
+                    className="bg-gray-900 rounded cursor-move"
+                  />
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  {activeTab === 'embedding' ? (
+                    <>
+                      <div className="bg-gray-800 rounded-lg p-6">
+                        <div className="flex items-center mb-3">
+                          <span className="text-2xl mr-2">📝</span>
+                          <h3 className="text-lg font-bold text-white">什麼是 Embedding？</h3>
+                        </div>
+                        <p className="text-gray-300 mb-4">
+                          Embedding 是將文字、圖像等資料轉換成數學向量的技術。相似的概念在空間中會靠近。
+                        </p>
+                        <ul className="space-y-2 text-sm text-gray-400">
+                          <li className="flex items-start">
+                            <span className="text-blue-400 mr-2">•</span>
+                            <span>藍色點：文字 embedding（如「貓」、「狗」）</span>
+                          </li>
+                          <li className="flex items-start">
+                            <span className="text-blue-300 mr-2">•</span>
+                            <span>淺藍點：圖像 embedding（對應的圖片）</span>
+                          </li>
+                          <li className="flex items-start">
+                            <span className="text-yellow-400 mr-2">•</span>
+                            <span>相似物體會聚集在一起形成群集</span>
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-gray-800 rounded-lg p-6">
+                        <div className="flex items-center mb-3">
+                          <span className="text-2xl mr-2">⚡</span>
+                          <h3 className="text-lg font-bold text-white">關鍵概念</h3>
+                        </div>
+                        <div className="space-y-3 text-sm">
+                          <div className="bg-gray-700 p-3 rounded">
+                            <div className="font-semibold text-green-400 mb-1">語意相似度</div>
+                            <div className="text-gray-300">
+                              空間中的距離代表語意的相似程度。貓和狗很接近，貓和汽車很遠。
+                            </div>
+                          </div>
+                          <div className="bg-gray-700 p-3 rounded">
+                            <div className="font-semibold text-blue-400 mb-1">多模態融合</div>
+                            <div className="text-gray-300">
+                              文字和圖像可以在同一空間中表示，實現跨模態理解。
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-gray-800 rounded-lg p-6">
+                        <div className="flex items-center mb-3">
+                          <span className="text-2xl mr-2">🖼️</span>
+                          <h3 className="text-lg font-bold text-white">什麼是 CLIP？</h3>
+                        </div>
+                        <p className="text-gray-300 mb-4">
+                          CLIP 能用文字搜尋圖像，通過測量向量間的相似度找到最匹配的結果。
+                        </p>
+                        <ul className="space-y-2 text-sm text-gray-400">
+                          <li className="flex items-start">
+                            <span className="text-yellow-400 mr-2">⭐</span>
+                            <span>中心黃點：你的文字查詢</span>
+                          </li>
+                          <li className="flex items-start">
+                            <span className="text-green-400 mr-2">🟢</span>
+                            <span>綠色：高相似度結果（&gt;80%）</span>
+                          </li>
+                          <li className="flex items-start">
+                            <span className="text-red-400 mr-2">🔴</span>
+                            <span>紅色：低相似度結果（&lt;20%）</span>
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-gray-800 rounded-lg p-6">
+                        <div className="flex items-center mb-3">
+                          <span className="text-2xl mr-2">📸</span>
+                          <h3 className="text-lg font-bold text-white">實際應用</h3>
+                        </div>
+                        <div className="space-y-3 text-sm">
+                          <div className="bg-gray-700 p-3 rounded">
+                            <div className="font-semibold text-purple-400 mb-1">圖像搜尋</div>
+                            <div className="text-gray-300">
+                              輸入「日落海灘」，自動找出所有相關照片
+                            </div>
+                          </div>
+                          <div className="bg-gray-700 p-3 rounded">
+                            <div className="font-semibold text-pink-400 mb-1">內容審核</div>
+                            <div className="text-gray-300">
+                              檢測圖片是否包含特定內容或違規元素
+                            </div>
+                          </div>
+                          <div className="bg-gray-700 p-3 rounded">
+                            <div className="font-semibold text-blue-400 mb-1">零樣本分類</div>
+                            <div className="text-gray-300">
+                              不需訓練就能分類從未見過的物體類別
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-6 bg-gray-800 rounded-lg p-6">
+                  <h3 className="text-lg font-bold text-white mb-3">💡 技術原理</h3>
+                  <div className="grid md:grid-cols-3 gap-4 text-sm">
+                    <div className="bg-gray-700 p-4 rounded">
+                      <div className="font-semibold text-blue-400 mb-2">1. 向量化</div>
+                      <div className="text-gray-300">
+                        將文字/圖像轉換成固定維度的數值向量（如 512 維）
+                      </div>
+                    </div>
+                    <div className="bg-gray-700 p-4 rounded">
+                      <div className="font-semibold text-green-400 mb-2">2. 相似度計算</div>
+                      <div className="text-gray-300">
+                        使用餘弦相似度或歐式距離測量向量間的接近程度
+                      </div>
+                    </div>
+                    <div className="bg-gray-700 p-4 rounded">
+                      <div className="font-semibold text-purple-400 mb-2">3. 排序檢索</div>
+                      <div className="text-gray-300">
+                        根據相似度分數排序，返回最相關的結果
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <footer className="mt-8 text-center text-gray-400 text-sm">
+                  <p>互動式 3D 視覺化教學工具 - 理解 AI 的語意空間</p>
+                </footer>
+              </div>
+            </div>
+          );
+        };
+
+        // 渲染應用
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<EmbeddingVisualizer />);
+    </script>
+</body>
+</html>
